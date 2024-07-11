@@ -1439,6 +1439,43 @@ SelectQuery = Comp(
     + ValuesClause,
 )
 
+PathsClause = (
+    Keyword("PATHS")
+    + Optional(Param("length", Keyword("SHORTEST") | Keyword("ALL")))
+    + Optional(Param("_cyclic", Keyword("CYCLIC")))
+)
+
+PathStartOrEnd = (
+    Param("var", Var)
+    + Optional(
+        (Suppress("=") + Param("iri", iri)) | Param("pattern", GroupGraphPattern)
+    )
+)
+
+PathStart = Param("start", Comp("PathStart", Keyword("START") + PathStartOrEnd))
+PathEnd = Param("end", Comp("PathEnd", Keyword("END") + PathStartOrEnd))
+PathVia = Param(
+    "via",
+    Comp(
+        "PathVia", 
+        Keyword("VIA")
+        + Optional(
+            Param("path", Path) | Param("pattern", GroupGraphPattern) | Param("var", Var)
+        ),
+    ),
+)
+MaxLengthClause = Comp("MaxLengthClause", Keyword("MAX LENGTH") + Param("max_length", INTEGER))
+
+PathQuery = Comp(
+    "PathQuery",
+    PathsClause
+    + PathStart
+    + PathEnd
+    + PathVia
+    + Optional(Param("max_length", MaxLengthClause))
+    + Optional(Param("limitoffset", LimitOffsetClauses))
+)
+
 # [10] ConstructQuery ::= 'CONSTRUCT' ( ConstructTemplate DatasetClause* WhereClause SolutionModifier | DatasetClause* 'WHERE' '{' TriplesTemplate? '}' SolutionModifier )
 # NOTE: The CONSTRUCT WHERE alternative has unnecessarily many Comp/Param pairs
 # to allow it to through the same algebra translation process
@@ -1501,7 +1538,7 @@ Update <<= ParamList("prologue", Prologue) + Optional(
 # ( SelectQuery | ConstructQuery | DescribeQuery | AskQuery )
 # ValuesClause
 # NOTE: ValuesClause was moved to individual queries
-Query = Prologue + (SelectQuery | ConstructQuery | DescribeQuery | AskQuery)
+Query = Prologue + (SelectQuery | ConstructQuery | DescribeQuery | AskQuery | PathQuery)
 
 # [3] UpdateUnit ::= Update
 UpdateUnit = Comp("Update", Update)

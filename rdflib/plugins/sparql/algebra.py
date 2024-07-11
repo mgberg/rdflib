@@ -756,6 +756,48 @@ def translate(q: CompValue) -> Tuple[Optional[CompValue], List[Variable]]:
 
     return M, PV
 
+def translatePathQuery(q: CompValue) -> Tuple[Optional[CompValue], List[Variable]]:
+    """
+    http://www.w3.org/TR/sparql11-query/#convertSolMod
+
+    """
+
+    _traverse(q, _simplifyFilters)
+
+    q = traverse(q, visitPost=translatePath)
+
+    # TODO: Var scope test
+    VS: Set[Variable] = {q.start.var, q.end.var}
+
+    for name, part_obj in {"start": q.start, "end": q.end, "via": q.via}.items():
+        if part_obj.pattern:
+            vars_in_pattern = set()
+            traverse(part_obj.pattern, functools.partial(_findVars, res=vars_in_pattern))
+            if name == "via":
+                if q.start.var not in vars_in_pattern:
+                    raise Exception(f"Start variable {q.start.var.n3()} not in via pattern")
+                if q.end.var not in vars_in_pattern:
+                    raise Exception(f"End variable {q.end.var.n3()} not in via pattern")
+            elif part_obj.var not in vars_in_pattern:
+                # This check only applies to start and end
+                raise Exception(f"Path {name} pattern doesn't contain specified variable {part_obj.var.n3()}")
+            M = translateGroupGraphPattern(part_obj.pattern)
+            part_obj.pattern = CompValue("Distinct", p=M)
+
+    if q.limitoffset:
+        if q.limitoffset.offset is not None:
+            q.limitoffset.offset = q.limitoffset.offset.toPython()
+        if q.limitoffset.limit is not None:
+            q.limitoffset.limit = q.limitoffset.limit.toPython()
+
+    q.shortest = q.length == "SHORTEST" or not q.length
+    q.cyclic = bool(q._cyclic)
+    q.c
+
+    PV = VS
+
+    return q, PV
+
 
 def _find_first_child_projections(M: CompValue) -> Iterable[CompValue]:
     """
@@ -926,7 +968,10 @@ def translateQuery(
         q[1], visitPost=functools.partial(translatePName, prologue=prologue)
     )
 
-    P, PV = translate(q[1])
+    if q[1].name == "PathQuery":
+        P, PV = translatePathQuery(q[1])
+    else:
+        P, PV = translate(q[1])
     datasetClause = q[1].datasetClause
     if q[1].name == "ConstructQuery":
         template = triples(q[1].template) if q[1].template else None

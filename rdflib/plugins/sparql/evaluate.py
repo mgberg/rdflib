@@ -17,6 +17,7 @@ also return a dict of list of dicts
 from __future__ import annotations
 
 import collections
+from functools import partial
 import itertools
 import json as j
 import re
@@ -322,6 +323,8 @@ def evalPart(ctx: QueryContext, part: CompValue) -> Any:
         return evalAskQuery(ctx, part)
     elif part.name == "ConstructQuery":
         return evalConstructQuery(ctx, part)
+    elif part.name == "PathQuery":
+        return evalPathQuery(ctx, part)
 
     elif part.name == "ServiceGraphPattern":
         return evalServiceQuery(ctx, part)
@@ -637,6 +640,86 @@ def evalDescribeQuery(ctx: QueryContext, query) -> Dict[str, Union[str, Graph]]:
     res["type_"] = "DESCRIBE"
     res["graph"] = graph
 
+    return res
+
+
+def evalPathQuery(
+    ctx: QueryContext, query: CompValue
+) -> Mapping[str, Union[str, List[Variable], Iterable[FrozenDict]]]:
+    q = query.p
+    start_var = q.start.var
+    start = q.start.iri or q.start.pattern or None
+    end_var = q.end.var
+    end = q.end.iri or q.end.pattern or None
+
+    def _rank(node_spec) -> int:
+        if isinstance(node_spec, URIRef):
+            return 0
+        elif node_spec is None:
+            return 2
+        else:
+            return 1
+
+    reverse = False
+    if _rank(end) < _rank(start):
+        start_var, end_var = end_var, start_var
+        start, end = end, start
+        reverse = True
+
+    if q.via.var:
+        raise NotImplementedError("Unspecified paths not implemented yet")
+    elif q.via.path:
+        raise NotImplementedError("Via property paths not implemented yet")
+    else:
+        def get_next_bindings(node: Identifier):
+            sub_ctx = ctx.clone()
+            sub_ctx.bindings.update({start_var: node})
+            next_bindings = [dict(row) for row in evalPart(sub_ctx, q.via.pattern)]
+            return next_bindings
+
+    if isinstance(start, URIRef):
+        start_nodes = {start}
+    elif start is None:
+        start_nodes = set(ctx.graph.subjects(unique=True)) | set(ctx.graph.objects(unique=True))
+    else:
+        start_nodes = {row[start_var] for row in evalPart(ctx.clone(), start)}
+
+    if isinstance(end, URIRef):
+        def check_end(node: Identifier) -> bool:
+            return node == end
+    elif start is None:
+        check_end = None
+    else:
+        def check_end(node: Identifier) -> bool:
+            sub_ctx = ctx.clone()
+            sub_ctx.bindings.update({end_var: node})
+            matches = [dict(row) for row in evalPart(sub_ctx, q.via.pattern)]
+            return bool(matches)
+
+    visited_nodes = set()
+    finalized_paths = set()
+    iter_paths = {tuple([(node, None)]) for node in start_nodes}
+
+    while iter_paths:
+        iter_visited_nodes = set()
+        next_iter_paths = set()
+
+        for path in iter_paths:
+            current_node, _ = path[-1]
+            next_bindings = get_next_bindings(current_node)
+            for binding in next_bindings:
+                next_node = binding.pop(end_var)
+                binding.pop(start_var)
+                via_binding = tuple(binding.items())
+            
+
+
+
+
+    res: Dict[str, Union[str, List[Variable], Iterable[FrozenDict]]] = {}
+    res["type_"] = "PATHS"
+    # res["bindings"] = evalPart(ctx, query.p)
+    res["vars_"] = query.PV
     return res
 
 
